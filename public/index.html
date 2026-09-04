@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Descargas · lepayimio</title>
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+
+<header class="barra">
+  <h1>Descargas</h1>
+
+  <form class="buscador" id="buscador" role="search">
+    <input type="search" id="q" placeholder="Buscar una película o una serie…" autocomplete="off" spellcheck="false">
+    <button type="submit">Buscar</button>
+  </form>
+
+  <nav class="pestanas">
+    <button class="pestana activa" data-vista="catalogo">Catálogo</button>
+    <button class="pestana" data-vista="descargas">
+      Mis descargas <span class="chapa" id="chapa" hidden>0</span>
+    </button>
+  </nav>
+</header>
+
+<main>
+  <!-- ── Catálogo ──────────────────────────────────────────────────────── -->
+  <section id="vista-catalogo">
+    <div class="filtros">
+      <div class="grupo" id="fuentes"></div>
+      <div class="grupo">
+        <select id="genero">
+          <option value="">Género: todos</option>
+        </select>
+        <select id="calidad">
+          <option value="">Calidad: toda</option>
+        </select>
+      </div>
+    </div>
+
+    <p class="aviso" id="aviso-catalogo" hidden></p>
+    <div class="rejilla" id="rejilla"></div>
+
+    <div class="paginacion" id="paginacion" hidden>
+      <button id="anterior">← Anterior</button>
+      <span id="npagina">1</span>
+      <button id="siguiente">Siguiente →</button>
+    </div>
+  </section>
+
+  <!-- ── Descargas ─────────────────────────────────────────────────────── -->
+  <section id="vista-descargas" hidden>
+    <div class="resumen" id="resumen"></div>
+    <p class="pie" id="estado-sistema"></p>
+    <div class="lista" id="lista"></div>
+  </section>
+</main>
+
+<!-- Panel lateral: se abre al pulsar una tarjeta y ahí se elige la versión -->
+<aside class="cajon" id="cajon" hidden>
+  <div class="cajon-fondo" data-cerrar></div>
+  <div class="cajon-cuerpo">
+    <button class="cerrar" data-cerrar aria-label="Cerrar">×</button>
+    <div id="cajon-contenido"></div>
+  </div>
+</aside>
+
+<div class="brindis" id="brindis" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

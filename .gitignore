@@ -1,0 +1,14 @@
+# dependencias
+/node_modules/
+
+# configuracion con secretos (usa .env.ejemplo como plantilla)
+/.env
+
+# base de datos de descargas y sus temporales (historial local)
+/data/*.sqlite3
+/data/*.sqlite3-shm
+/data/*.sqlite3-wal
+
+# copias de seguridad sueltas
+*.bak
+*.bak-*

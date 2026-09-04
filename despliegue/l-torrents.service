@@ -1,0 +1,37 @@
+[Unit]
+Description=L-torrents: catalogo de descargas hacia el buzon de Jellyfin
+After=network.target transmission-daemon.service
+# Wants y no Requires: si transmission esta parado, l-torrents tiene que
+# arrancar igual y DECIRLO en su panel de estado. Con Requires, el sitio
+# entero se caeria y no habria donde leer el motivo.
+Wants=transmission-daemon.service
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/l-torrents
+EnvironmentFile=/var/www/l-torrents/.env
+# Sin esto Express se cree en desarrollo y mete el stack trace en la respuesta.
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=3
+
+User=www-data
+Group=www-data
+# www-data ya esta en el grupo jellyfin, que es lo que le deja escribir en
+# /var/media/entrada. Los ficheros de /var/torrents/completos salen con grupo
+# www-data (directorio setgid + umask 2 de transmission), y de ahi que se
+# puedan enlazar pese a fs.protected_hardlinks=1.
+UMask=0002
+
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/www/l-torrents /var/media/entrada /var/torrents
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

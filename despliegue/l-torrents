@@ -1,0 +1,43 @@
+# l-torrents.lepayimio.es
+#
+# Mismo molde que l-tcg: Cloudflare en naranja, cert de origen compartido y
+# solo-cloudflare.conf filtrando por IP de edge. No hace falta ACME.
+
+map $http_cf_connecting_ip $torrents_client_ip {
+    default $http_cf_connecting_ip;
+    ""      $remote_addr;
+}
+
+map $http_x_forwarded_proto $torrents_proto {
+    default $scheme;
+    https   https;
+    http    http;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name l-torrents.lepayimio.es;
+    access_log /var/log/nginx/l-torrents.log;
+    include /etc/nginx/snippets/solo-cloudflare.conf;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name l-torrents.lepayimio.es;
+    access_log /var/log/nginx/l-torrents.log;
+    include /etc/nginx/snippets/solo-cloudflare.conf;
+
+    ssl_certificate     /etc/ssl/lepayimio/lepayimio.crt;
+    ssl_certificate_key /etc/ssl/lepayimio/lepayimio.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # Las portadas van proxeadas por la aplicacion y algunas pesan; el resto
+    # de peticiones son JSON pequeno.
+    client_max_body_size 1m;
+
+    include /etc/nginx/snippets/l-torrents-proxy.conf;
+}

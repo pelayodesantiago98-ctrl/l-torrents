@@ -1,0 +1,16 @@
+{
+  "name": "l-torrents",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Catalogo de descargas: busca en el indexador, manda a transmission y deja el resultado en el buzon de Jellyfin",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "elitetorrent": "^1.0.1",
+    "express": "^5.2.1"
+  }
+}
