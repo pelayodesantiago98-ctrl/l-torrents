@@ -70,6 +70,14 @@ async function cargarOpciones() {
     $('#calidad').append(new Option(`Calidad: ${c.nombre}`, c.id));
   }
 
+  // El browse por genero/calidad de elitetorrent esta roto en el dominio
+  // actual, asi que el backend ya no los manda; si vienen vacios, se oculta
+  // ese grupo. El filtro que funciona vive en la fuente "Varias webs".
+  if (!o.generos.length && !o.calidades.length) {
+    const g = $('#genero').closest('.grupo');
+    if (g) g.hidden = true;
+  }
+
   // Buscadores (fuentes de la caja de busqueda) y sus filtros.
   const selB = $('#buscador-fuente');
   for (const b of (o.buscadores || [])) {

@@ -53,9 +53,14 @@ const ruta = (fn) => (req, res) => {
 
 app.get('/api/opciones', (req, res) => {
   res.json({
-    fuentes: Object.entries(indexador.FUENTES).map(([id, f]) => ({ id, nombre: f.nombre })),
-    generos: indexador.GENEROS,
-    calidades: indexador.CALIDADES,
+    // El browse por genero/calidad de elitetorrent redirige a la home en el
+    // dominio actual (.com), y la seccion hdrip revienta; se dejan de ofrecer.
+    // Para filtrar por calidad/idioma esta la fuente "Varias webs".
+    fuentes: Object.entries(indexador.FUENTES)
+      .filter(([id]) => id !== 'hdrip')
+      .map(([id, f]) => ({ id, nombre: f.nombre })),
+    generos: [],
+    calidades: [],
     indexador: indexador.comoEstaConfigurado(),
     configurado: indexador.configurado(),
     buscadores: [
