@@ -38,12 +38,14 @@ Dos apuntes de integración, resueltos en `lib/fuente-elitetorrent.js`:
 
 La segunda fuente usa
 **[Torrents-Api](https://github.com/Ryuk-me/Torrents-Api)** de **Ryuk-me**, un
-scraper HTTP de varios sitios de torrents. De todos sus sitios se usa **1337x**,
-que es el que devuelve idioma y del que se puede sacar la calidad del propio
-nombre. De nuevo, todo el mérito de esa API es de su autor; aquí solo se
-consume y se adapta en `lib/fuente-torrents-api.js`, que además añade dos filtros
-que la web ajena no ofrece de fábrica: **idioma** (campo `Language`) y **calidad**
-de película (2160p/1080p/720p/480p, leída del nombre).
+scraper HTTP de muchos sitios de torrents. El adaptador `lib/fuente-torrents-api.js`
+consulta **varias webs en paralelo** (por defecto 1337x, PirateBay y TorrentProject;
+se ajusta con `TORRENTS_API_SITIOS`), **fusiona** los resultados, los **deduplica**
+por su hash y los ordena por número de semillas. De nuevo, todo el mérito de esa
+API es de su autor; aquí solo se consume. Además añade dos filtros que las webs
+ajenas no ofrecen de fábrica: **idioma** (del campo `Language` cuando existe, o
+deducido del nombre) y **calidad** de película (2160p/1080p/720p/480p, leída del
+nombre).
 
 Hay que **autoalojar** la Torrents-Api (la instancia pública que figura en su
 README ya no existe):

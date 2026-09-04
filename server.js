@@ -60,7 +60,7 @@ app.get('/api/opciones', (req, res) => {
     configurado: indexador.configurado(),
     buscadores: [
       { id: 'principal', nombre: 'Catálogo', filtros: false },
-      { id: '1337x', nombre: '1337x', filtros: true, idiomas: torrentsApi.IDIOMAS, calidades: torrentsApi.CALIDADES },
+      { id: 'torrents-api', nombre: torrentsApi.nombre, filtros: true, idiomas: torrentsApi.IDIOMAS, calidades: torrentsApi.CALIDADES },
     ],
   });
 });
@@ -71,7 +71,7 @@ app.get('/api/catalogo', ruta(async (req, res) => {
 
   let items;
   if (q) {
-    if (String(req.query.buscador || '') === '1337x') {
+    if (String(req.query.buscador || '') === 'torrents-api') {
       items = await torrentsApi.buscar(q, {
         idioma: String(req.query.idioma || ''),
         calidad: String(req.query.calidad || ''),
