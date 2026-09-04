@@ -23,9 +23,15 @@ const estado = {
   genero: '',
   calidad: '',
   q: '',
+  buscador: 'principal',
+  fIdioma: '',
+  fCalidad: '',
   pagina: 1,
   items: [],
 };
+
+/* Config de los buscadores, rellenada en cargarOpciones(). */
+const BUSCADORES = {};
 
 /* ── Avisos ──────────────────────────────────────────────────────────── */
 
@@ -64,6 +70,30 @@ async function cargarOpciones() {
     $('#calidad').append(new Option(`Calidad: ${c.nombre}`, c.id));
   }
 
+  // Buscadores (fuentes de la caja de busqueda) y sus filtros.
+  const selB = $('#buscador-fuente');
+  for (const b of (o.buscadores || [])) {
+    BUSCADORES[b.id] = b;
+    selB.append(new Option(`Buscar en: ${b.nombre}`, b.id));
+  }
+  selB.value = estado.buscador;
+  aplicarFiltrosBuscador();
+  selB.addEventListener('change', () => {
+    estado.buscador = selB.value;
+    estado.fIdioma = ''; estado.fCalidad = '';
+    aplicarFiltrosBuscador();
+    estado.pagina = 1;
+    if (estado.q) cargarCatalogo();
+  });
+  $('#f-idioma').addEventListener('change', (ev) => {
+    estado.fIdioma = ev.target.value; estado.pagina = 1;
+    if (estado.q) cargarCatalogo();
+  });
+  $('#f-calidad').addEventListener('change', (ev) => {
+    estado.fCalidad = ev.target.value; estado.pagina = 1;
+    if (estado.q) cargarCatalogo();
+  });
+
   $$('#fuentes button').forEach((b) => b.addEventListener('click', () => {
     estado.fuente = b.dataset.fuente;
     estado.q = ''; $('#q').value = '';
@@ -80,6 +110,24 @@ async function cargarOpciones() {
   }
 }
 
+/* Segun el buscador elegido, muestra u oculta los filtros de idioma y
+   calidad y los rellena con lo que declare ese buscador. */
+function aplicarFiltrosBuscador() {
+  const b = BUSCADORES[estado.buscador] || {};
+  const selI = $('#f-idioma');
+  const selC = $('#f-calidad');
+  if (b.filtros) {
+    selI.innerHTML = '<option value="">Idioma: todos</option>'
+      + (b.idiomas || []).map((x) => `<option value="${esc(x.id)}">${esc(x.nombre)}</option>`).join('');
+    selC.innerHTML = '<option value="">Calidad: toda</option>'
+      + (b.calidades || []).map((x) => `<option value="${esc(x.id)}">${esc(x.nombre)}</option>`).join('');
+    selI.value = estado.fIdioma; selC.value = estado.fCalidad;
+    selI.hidden = false; selC.hidden = false;
+  } else {
+    selI.hidden = true; selC.hidden = true;
+  }
+}
+
 function mostrarAviso(texto) {
   const a = $('#aviso-catalogo');
   a.textContent = texto;
@@ -88,7 +136,15 @@ function mostrarAviso(texto) {
 
 function urlCatalogo() {
   const p = new URLSearchParams();
-  if (estado.q) p.set('q', estado.q);
+  if (estado.q) {
+    p.set('q', estado.q);
+    if (estado.buscador && estado.buscador !== 'principal') {
+      p.set('buscador', estado.buscador);
+      if (estado.fIdioma) p.set('idioma', estado.fIdioma);
+      if (estado.fCalidad) p.set('calidad', estado.fCalidad);
+      p.set('pagina', estado.pagina);
+    }
+  }
   else if (estado.genero) { p.set('genero', estado.genero); p.set('pagina', estado.pagina); }
   else if (estado.calidad) { p.set('calidad', estado.calidad); p.set('pagina', estado.pagina); }
   else { p.set('fuente', estado.fuente); p.set('pagina', estado.pagina); }
@@ -141,7 +197,7 @@ function pintarCatalogo() {
     b.addEventListener('click', () => abrirCajon(estado.items[Number(b.dataset.i)])));
 
   /* search() no pagina en la API, así que ahí no se ofrece. */
-  $('#paginacion').hidden = Boolean(estado.q);
+  $('#paginacion').hidden = Boolean(estado.q) && estado.buscador === 'principal';
   $('#npagina').textContent = estado.pagina;
   $('#anterior').disabled = estado.pagina <= 1;
 }

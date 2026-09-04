@@ -1,37 +1,63 @@
 # l-torrents
 
-Catálogo de descargas autoalojado: busca en un indexador, deja elegir magnet o
-`.torrent`, se lo pasa a **Transmission** y deja el resultado en un buzón desde
-el que otro proceso lo coloca en la biblioteca de **Jellyfin**. Aquí no se
-clasifica ni se transcodifica nada: esto solo busca, descarga y renombra.
+Catálogo de descargas autoalojado: busca en uno o varios indexadores, deja
+elegir magnet o `.torrent`, se lo pasa a **Transmission** y deja el resultado en
+un buzón desde el que otro proceso lo coloca en la biblioteca de **Jellyfin**.
+Aquí no se clasifica ni se transcodifica nada: esto solo busca, descarga y
+renombra.
 
 Es una app pequeña de **Node + Express** (Express 5) con **SQLite**
 (`better-sqlite3`). Toda la interfaz exige sesión mediante un módulo SSO externo
 (ver más abajo).
 
-## Créditos: la API original
+## Fuentes del catálogo
 
-El catálogo se obtiene, por defecto, del paquete de npm
+El indexador está aislado en `lib/indexador.js` y admite tanto un **módulo de
+npm** (`INDEXADOR_MODULO`) como una **API HTTP** (`INDEXADOR_BASE`). Encima de
+eso, el buscador puede consultar varias fuentes seleccionables desde la interfaz.
+
+### 1. elitetorrent (fuente principal, navegación + búsqueda)
+
+El catálogo por defecto sale del paquete de npm
 **[`elitetorrent`](https://www.npmjs.com/package/elitetorrent)** de
-**chris5855** ([repositorio en GitHub](https://github.com/chrisperezsantiago1)),
-que expone `getMovies()`, `getSeries()`, `search()`, `getNewReleases()`,
-`getContentByGenre()`, `getContentByQuality()`, etc.
+**chris5855** ([perfil en GitHub](https://github.com/chrisperezsantiago1)), que
+expone `getMovies()`, `getSeries()`, `search()`, `getNewReleases()`,
+`getContentByGenre()`, `getContentByQuality()`, etc. Todo el mérito del scraping
+y de la API es suyo; este proyecto solo la consume.
 
-Todo el mérito del scraping y de la API es suyo. Este proyecto solo la consume.
+Dos apuntes de integración, resueltos en `lib/fuente-elitetorrent.js`:
 
-Dos apuntes sobre cómo se integra, resueltos en `lib/fuente-elitetorrent.js`:
-
-1. **Dominio.** La versión 1.0.1 del paquete trae fijo en su código compilado el
-   dominio `www.elitetorrent.se`, que ya no resuelve. El envoltorio reescribe
-   `BASE_URL` en tiempo de ejecución (por defecto a `www.elitetorrent.com`) en
-   vez de parchear `node_modules`. Se ajusta con la variable `ELITETORRENT_BASE`.
+1. **Dominio.** La versión 1.0.1 trae fijo en su código compilado el dominio
+   `www.elitetorrent.se`, que ya no resuelve. El envoltorio reescribe `BASE_URL`
+   en tiempo de ejecución (por defecto a `www.elitetorrent.com`) en vez de
+   parchear `node_modules`. Se ajusta con `ELITETORRENT_BASE`.
 2. **Enlaces.** Los campos `torrent` y `magnet` vienen ofuscados tras un
-   acortador (base64 anidado + ROT13); el envoltorio los descifra para que
-   Transmission reciba un enlace usable.
+   acortador (base64 anidado + ROT13); el envoltorio los descifra.
 
-El indexador está aislado en `lib/indexador.js`: admite tanto un **módulo de
-npm** (`INDEXADOR_MODULO`) como una **API HTTP** (`INDEXADOR_BASE`), así que
-puede apuntarse a otra fuente sin tocar el resto.
+### 2. 1337x, vía Torrents-Api (búsqueda con filtro de idioma y calidad)
+
+La segunda fuente usa
+**[Torrents-Api](https://github.com/Ryuk-me/Torrents-Api)** de **Ryuk-me**, un
+scraper HTTP de varios sitios de torrents. De todos sus sitios se usa **1337x**,
+que es el que devuelve idioma y del que se puede sacar la calidad del propio
+nombre. De nuevo, todo el mérito de esa API es de su autor; aquí solo se
+consume y se adapta en `lib/fuente-torrents-api.js`, que además añade dos filtros
+que la web ajena no ofrece de fábrica: **idioma** (campo `Language`) y **calidad**
+de película (2160p/1080p/720p/480p, leída del nombre).
+
+Hay que **autoalojar** la Torrents-Api (la instancia pública que figura en su
+README ya no existe):
+
+```sh
+git clone https://github.com/Ryuk-me/Torrents-Api
+cd Torrents-Api && npm install
+PORT=3012 node app.js   # mejor atado a 127.0.0.1
+```
+
+Y apuntar l-torrents a ella con `TORRENTS_API_BASE` (por defecto
+`http://127.0.0.1:3012`). El sitio 1337x bloquea peticiones seguidas desde IPs
+de datacenter, así que puede fallar de vez en cuando; el adaptador lo reporta en
+claro.
 
 ## Puesta en marcha
 
@@ -43,10 +69,11 @@ npm install --ignore-scripts
 
 # 2. Configuración.
 cp .env.ejemplo .env
-#   - Elige indexador: INDEXADOR_MODULO (paquete/envoltorio) o INDEXADOR_BASE (URL).
-#     Para usar elitetorrent con el envoltorio incluido:
+#   - Elige indexador principal: INDEXADOR_MODULO o INDEXADOR_BASE.
+#     Para elitetorrent con el envoltorio incluido:
 #       npm install --ignore-scripts elitetorrent
 #       INDEXADOR_MODULO=/ruta/absoluta/al/proyecto/lib/fuente-elitetorrent.js
+#   - Para la segunda fuente, levanta Torrents-Api y pon TORRENTS_API_BASE.
 #   - Rellena los datos del RPC de Transmission (los mismos de settings.json).
 #   - Ajusta BUZON, márgenes de disco, etc.
 

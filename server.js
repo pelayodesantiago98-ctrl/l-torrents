@@ -22,6 +22,7 @@ const transmision = require('./lib/transmision');
 const almacen = require('./lib/almacen');
 const cosecha = require('./lib/cosecha');
 const nombrar = require('./lib/nombrar');
+const torrentsApi = require('./lib/fuente-torrents-api');
 
 const app = express();
 const PUERTO = Number(process.env.PORT || 3011);
@@ -57,6 +58,10 @@ app.get('/api/opciones', (req, res) => {
     calidades: indexador.CALIDADES,
     indexador: indexador.comoEstaConfigurado(),
     configurado: indexador.configurado(),
+    buscadores: [
+      { id: 'principal', nombre: 'Catálogo', filtros: false },
+      { id: '1337x', nombre: '1337x', filtros: true, idiomas: torrentsApi.IDIOMAS, calidades: torrentsApi.CALIDADES },
+    ],
   });
 });
 
@@ -66,7 +71,15 @@ app.get('/api/catalogo', ruta(async (req, res) => {
 
   let items;
   if (q) {
-    items = await indexador.buscar(q);
+    if (String(req.query.buscador || '') === '1337x') {
+      items = await torrentsApi.buscar(q, {
+        idioma: String(req.query.idioma || ''),
+        calidad: String(req.query.calidad || ''),
+        pagina,
+      });
+    } else {
+      items = await indexador.buscar(q);
+    }
   } else if (req.query.genero) {
     items = await indexador.porGenero(String(req.query.genero), pagina);
   } else if (req.query.calidad) {
