@@ -300,6 +300,10 @@ async function descargar(boton) {
     });
 
     if (r.duplicado) brindis(`Ya la habías pedido (descarga #${r.duplicado}).`, '');
+    /* Puede no arrancar todavía: si no hay sitio en el disco se queda en
+       cola y la suelta cosecha.js sola. Decir «en marcha» ahí sería mentir, y
+       luego el panel la enseña parada sin que se entienda por qué. */
+    else if (r.enCola) brindis(`En cola: ${fichaAbierta.titulo}. Arranca cuando haya sitio.`, '');
     else brindis(`En marcha: ${fichaAbierta.titulo}`, 'bien');
 
     $('#cajon').hidden = true;
@@ -436,14 +440,187 @@ $$('.pestana').forEach((b) => b.addEventListener('click', () => {
   $$('.pestana').forEach((o) => o.classList.toggle('activa', o === b));
   $('#vista-catalogo').hidden = estado.vista !== 'catalogo';
   $('#vista-descargas').hidden = estado.vista !== 'descargas';
+  $('#vista-cola').hidden = estado.vista !== 'cola';
   if (estado.vista === 'descargas') { refrescarDescargas(); cargarEstadoSistema(); }
+  if (estado.vista === 'cola') refrescarCola();
 }));
 
 $$('[data-cerrar]').forEach((e) => e.addEventListener('click', () => { $('#cajon').hidden = true; }));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#cajon').hidden = true; });
 
+
+/* ── Cola de transmission ────────────────────────────────────────────── */
+
+/*
+ * La cola entera de transmission, no solo lo que este servicio metio. Cada
+ * torrent tiene un GO! cuando esta parado o en cola: arrancarlo es instantaneo
+ * (es solo una llamada RPC), pero lo que viene despues depende del enjambre:
+ * si no hay semillas, transmission seguira mostrando "Idle" y no avanzara.
+ *
+ * Cuidado con los que tienen la etiqueta l-archivos:esperando-disco: el
+ * planificador de l-archivos los vuelve a parar cada 20 s si no cabe. Para
+ * que el GO! sea persistente hay que liberar sitio o quitar la etiqueta.
+ */
+
+async function refrescarCola() {
+  try {
+    pintarCola(await pedir('/api/transmission/todos'));
+    const h = new Date();
+    $('#refresco-cola-info').textContent =
+      `actualizado a las ${String(h.getHours()).padStart(2,'0')}:${String(h.getMinutes()).padStart(2,'0')}:${String(h.getSeconds()).padStart(2,'0')}`;
+  } catch (e) {
+    console.error(e);
+    $('#aviso-cola').textContent = e.message;
+  }
+}
+
+function bytesHumano(n) {
+  if (!n || n < 0) return '—';
+  const u = ['B','KB','MB','GB','TB'];
+  let i = 0; let v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2) + ' ' + u[i];
+}
+
+function aplicarFiltrosCola(torrents) {
+  const checks = $$('.f-col').filter((c) => c.checked).map((c) => c.value);
+  const q = $('#f-col-q').value.trim().toLowerCase();
+  const soloGo = $('#f-col-go') && $('#f-col-go').checked;
+  const arrancable = (t) =>
+    (t.estadoNum === 0 || t.estadoNum === 3 || t.estadoNum === 5) && !t.terminado;
+  return torrents.filter((t) => {
+    const categoria =
+      t.estadoNum === 4 ? 'descargando' :
+      t.estadoNum === 6 ? 'compartiendo' :
+      t.esperandoDisco ? 'esperando-disco' :
+      t.estadoNum === 0 && t.semillas === 0 && t.faltan > 0 ? 'idle' :
+      'parado';
+    if (!checks.includes(categoria)) return false;
+    if (q && !t.nombre.toLowerCase().includes(q)) return false;
+    if (soloGo && !arrancable(t)) return false;
+    return true;
+  });
+}
+
+function pintarCola(d) {
+  /* Resumen arriba: lo mismo que en "Mis descargas" pero con la perspectiva
+     de transmission entera. Si hay algo esperando disco, se avisa en grande. */
+  const r = d.resumen;
+  $('#resumen-cola').innerHTML = [
+    ['descargando', 'descargando', r.descargando],
+    ['lista', 'compartiendo', r.semillas],
+    ['aviso', 'esperando disco', r.esperandoDisco],
+    ['error', 'parados', r.parados],
+  ].map(([c, etq, n]) => `<div class="dato"><b>${n}</b><span>${etq}</span></div>`).join('');
+
+  $('#chapa-cola').textContent = r.total;
+  $('#chapa-cola').hidden = r.total === 0;
+
+  /* Arrancables (los que tendran GO!) primero: son los que el usuario va a
+     querer tocar. Dentro de cada grupo, mas semillas primero: si no hay
+     pares, transmission lo deja en Idle y el GO! no lleva a nada util. */
+  const arrancable = (t) =>
+    (t.estadoNum === 0 || t.estadoNum === 3 || t.estadoNum === 5) && !t.terminado;
+
+  const visibles = aplicarFiltrosCola(d.torrents).sort((a, b) => {
+    const aA = arrancable(a), bA = arrancable(b);
+    if (aA && !bA) return -1;
+    if (!aA && bA) return 1;
+    if (aA && bA) return (b.semillas || 0) - (a.semillas || 0);
+    return (b.semillas || 0) - (a.semillas || 0);
+  });
+
+  if (!visibles.length) {
+    $('#lista-cola').innerHTML = '<p class="vacio">Ningún torrent coincide con el filtro.</p>';
+    return;
+  }
+
+  $('#lista-cola').innerHTML = visibles.map((t) => {
+    const pct = Math.round(t.progreso * 100);
+    const sub = t.estadoNum === 4
+      ? `${pct}% · ${(t.velocidad / 1048576).toFixed(2)} MB/s · ${t.semillas} semillas`
+      : `${t.estado} · ${bytesHumano(t.bytes)} · ${t.semillas} semillas`;
+    const arrancable = (t.estadoNum === 0 || t.estadoNum === 3 || t.estadoNum === 5) && !t.terminado;
+    const etiquetaDisco = t.esperandoDisco
+      ? '<span class="motivo">parado por falta de disco (l-archivos)</span>' : '';
+    const errorBloque = t.errorFamilia
+      ? `<div class="motivo">${esc(t.errorFamilia)}: ${esc(t.errorTexto || '')}</div>` : '';
+    return `
+      <div class="fila">
+        <div>
+          <div class="nombre">${esc(t.nombre)}</div>
+          <div class="sub">${esc(sub)}</div>
+          ${etiquetaDisco}
+          ${errorBloque}
+          ${t.estadoNum === 4
+            ? `<div class="barra-progreso"><i style="width:${pct}%"></i></div>` : ''}
+        </div>
+        <div class="acciones">
+          ${arrancable
+            ? `<button class="go" data-arrancar="${t.id}">GO!</button>`
+            : (t.estadoNum === 4
+                ? `<button data-parar="${t.id}">Stop</button>`
+                : '<span class="quieto">·</span>')}
+        </div>
+      </div>`;
+  }).join('');
+
+  $$('[data-arrancar]').forEach((b) => b.addEventListener('click', async () => {
+    const id = b.dataset.arrancar;
+    b.disabled = true;
+    /* Pausa de 8s: transmission necesita un momento para arrancar de verdad
+       y el brindis necesita su tiempo. Si refrescamos a los 15s, no se ve
+       raro el boton poniendose gris y volviendo a salir. */
+    ventanaQuietaHasta = Date.now() + 8000;
+    try {
+      await pedir(`/api/transmission/${id}/start`, { method: 'POST' });
+      brindis('Arrancado · transmission avisara si no hay semillas', 'bien');
+    } catch (e) {
+      brindis(e.message, 'mal');
+    }
+    setTimeout(refrescarCola, 3000);
+  }));
+
+  $$('[data-parar]').forEach((b) => b.addEventListener('click', async () => {
+    const id = b.dataset.parar;
+    b.disabled = true;
+    try {
+      await pedir(`/api/transmission/${id}/stop`, { method: 'POST' });
+      brindis('Parado', 'bien');
+    } catch (e) {
+      brindis(e.message, 'mal');
+    }
+    refrescarCola();
+  }));
+
+  if (r.esperandoDisco > 0) {
+    $('#aviso-cola').textContent =
+      `${r.esperandoDisco} torrents están parados por falta de disco (etiqueta l-archivos:esperando-disco). `
+      + `Arrancarlos a mano puede servir de poco: el planificador los vuelve a parar a los 20 s.`;
+  } else {
+    $('#aviso-cola').textContent = '';
+  }
+}
+
+$$('.f-col').forEach((c) => c.addEventListener('change', () => refrescarCola()));
+$('#f-col-q').addEventListener('input', () => refrescarCola());
+$('#refrescar-cola').addEventListener('click', () => { ventanaQuietaHasta = 0; refrescarCola(); });
+
 cargarOpciones().then(cargarCatalogo);
 refrescarDescargas();
+refrescarCola();
 /* El panel se refresca solo mientras la pestaña esté visible. Con la pestaña
    en segundo plano no se pide nada: no hay nadie mirando. */
-setInterval(() => { if (!document.hidden) refrescarDescargas(); }, 5000);
+/* Cola NO se refresca sola: seria un pestaneo continuo para una lista que
+   solo cambia cuando el usuario hace algo. La Descargas si se refresca
+   porque tiene barras de progreso que necesitan moverse. Si el usuario
+   vuelve a la pestaña, se actualiza al momento. */
+let ventanaQuietaHasta = 0;
+setInterval(() => {
+  if (document.hidden) return;
+  if (Date.now() < ventanaQuietaHasta) return;
+  refrescarDescargas();
+}, 15000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && estado.vista === 'cola') refrescarCola();
+});

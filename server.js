@@ -70,6 +70,34 @@ app.get('/api/opciones', (req, res) => {
   });
 });
 
+/*
+ * Respaldo de fuente: si el indexador principal (elitetorrent) no responde
+ * —su web se cae a ratos—, el catálogo tira de la segunda fuente (varias webs,
+ * torrents-api) para no quedarse en blanco. La búsqueda se repite tal cual; en
+ * las secciones, que la segunda fuente no sabe navegar, se aproxima buscando el
+ * año en curso y quedándose con películas o series según toque. Si también
+ * falla la segunda, se propaga el error y la interfaz lo explica.
+ */
+async function conRespaldoBusqueda(q, pagina) {
+  try {
+    return await indexador.buscar(q);
+  } catch (e) {
+    console.error('[catalogo] indexador caído, respaldo (búsqueda):', e.message);
+    return await torrentsApi.buscar(q, { pagina });
+  }
+}
+
+async function conRespaldoSeccion(fuenteId, fn, pagina) {
+  try {
+    return await fn(pagina);
+  } catch (e) {
+    console.error(`[catalogo] indexador caído en "${fuenteId}", respaldo (sección):`, e.message);
+    const tipo = fuenteId === 'series' ? 'serie' : 'pelicula';
+    const items = await torrentsApi.buscar(String(new Date().getFullYear()), { pagina });
+    return items.filter((x) => x.tipo === tipo);
+  }
+}
+
 app.get('/api/catalogo', ruta(async (req, res) => {
   const pagina = Math.max(1, Number(req.query.pagina) || 1);
   const q = String(req.query.q || '').trim();
@@ -83,16 +111,17 @@ app.get('/api/catalogo', ruta(async (req, res) => {
         pagina,
       });
     } else {
-      items = await indexador.buscar(q);
+      items = await conRespaldoBusqueda(q, pagina);
     }
   } else if (req.query.genero) {
     items = await indexador.porGenero(String(req.query.genero), pagina);
   } else if (req.query.calidad) {
     items = await indexador.porCalidad(String(req.query.calidad), pagina);
   } else {
-    const fuente = indexador.FUENTES[String(req.query.fuente || 'novedades')];
+    const fuenteId = String(req.query.fuente || 'novedades');
+    const fuente = indexador.FUENTES[fuenteId];
     if (!fuente) return res.status(400).json({ error: 'esa sección no existe' });
-    items = await fuente.fn(pagina);
+    items = await conRespaldoSeccion(fuenteId, fuente.fn, pagina);
   }
 
   /* Se marca lo que ya se pidio antes para que la interfaz pueda avisar en vez
@@ -154,26 +183,6 @@ app.post('/api/descargas', ruta(async (req, res) => {
 
   const tamanoBytes = Number(b.tamanoBytes) || nombrar.aBytes(b.tamanoTxt);
 
-  /* El disco se comprueba ANTES de dar de alta nada. Empezar una descarga que
-     no cabe termina en un "error local: no space left" a medias, con el disco
-     lleno y el buzon parado de rebote. */
-  if (tamanoBytes) {
-    try {
-      const libre = await transmision.espacioLibre('/var/torrents/completos');
-      if (libre && libre - tamanoBytes < MARGEN_BYTES) {
-        return res.status(507).json({
-          error: `no cabe: ocupa ${nombrar.humano(tamanoBytes)} y solo quedan `
-               + `${nombrar.humano(libre)}, de los que hay que dejar `
-               + `${nombrar.humano(MARGEN_BYTES)} libres para que el buzón pueda trabajar`,
-        });
-      }
-    } catch (e) {
-      /* Que falle la comprobacion no debe impedir descargar: se sigue, y si
-         de verdad no cabe, transmission lo dira con su propio error. */
-      console.error('[espacio]', e.message);
-    }
-  }
-
   const id = almacen.crear({
     usuario: req.sesion.id,
     titulo,
@@ -186,6 +195,39 @@ app.post('/api/descargas', ruta(async (req, res) => {
     tamano_txt: b.tamanoTxt || null,
     tamano_bytes: tamanoBytes,
   });
+
+  /*
+   * El disco se mira ANTES de dar de alta nada, pero ya no para rechazar.
+   *
+   * Antes esto devolvia un 507 y la peticion se perdia: habia que acordarse de
+   * volver a pedirla mas tarde, y como nada avisaba de cuando habia sitio, o se
+   * insistia a ciegas o se quedaba sin bajar. Ahora se acepta igual y se deja
+   * en `pendiente`; la cola de cosecha.js la arranca sola en cuanto quepa.
+   *
+   * Empezar una descarga que no cabe sigue siendo lo que no se puede hacer:
+   * termina en un "error local: no space left" a medias, con el disco lleno y
+   * el buzon parado de rebote. La diferencia es que ahora eso se evita
+   * esperando, no diciendo que no.
+   */
+  if (tamanoBytes) {
+    try {
+      const libre = await transmision.espacioLibre('/var/torrents/completos');
+      if (libre && libre - tamanoBytes < MARGEN_BYTES) {
+        almacen.actualizar(id, {
+          estado: 'pendiente',
+          motivo: `en cola: no hay sitio en el disco todavía. Ocupa `
+                + `${nombrar.humano(tamanoBytes)} y solo quedan ${nombrar.humano(libre)}, `
+                + `de los que hay que dejar ${nombrar.humano(MARGEN_BYTES)} libres para que `
+                + 'el buzón pueda trabajar. Arranca sola en cuanto haya hueco.',
+        });
+        return res.json({ id, estado: 'pendiente', enCola: true });
+      }
+    } catch (e) {
+      /* Que falle la comprobacion no debe impedir descargar: se sigue, y si
+         de verdad no cabe, transmission lo dira con su propio error. */
+      console.error('[espacio]', e.message);
+    }
+  }
 
   try {
     const alta = via === 'magnet'
@@ -314,6 +356,79 @@ app.get('/api/estado', ruta(async (req, res) => {
   }
   res.json(estado);
 }));
+
+
+/* ── Cola de transmission ──────────────────────────────────────────────── */
+
+/*
+ * Lista completa de lo que transmission tiene ahora mismo, no solo lo que este
+ * servicio metio: la mayoria los puso l-archivos, y este panel existe
+ * precisamente para tener un sitio desde el que despertarlos a mano.
+ *
+ * Por eso se devuelve TODO con sus campos crudos: el front filtra y ordena.
+ */
+app.get('/api/transmission/todos', ruta(async (req, res) => {
+  const torrents = await transmision.consultar();
+  res.json({
+    /* Resumen agregado para pintarlo arriba sin tener que contarlo en el
+       cliente cada vez que refresca. */
+    resumen: {
+      total: torrents.length,
+      descargando: torrents.filter((t) => t.estadoNum === 4).length,
+      idle: torrents.filter((t) => t.estadoNum === 0 && !t.esperandoDisco && t.semillas === 0).length,
+      parados: torrents.filter((t) => t.estadoNum === 0).length,
+      semillas: torrents.filter((t) => t.estadoNum === 6).length,
+      esperandoDisco: torrents.filter((t) => t.esperandoDisco).length,
+    },
+    torrents: torrents.map((t) => ({
+      id: t.id,
+      nombre: t.nombre,
+      hash: t.hash,
+      estadoNum: t.estadoNum,
+      estado: t.estado,
+      progreso: t.progreso,
+      metadatos: t.metadatos,
+      bytes: t.bytes,
+      faltan: t.faltan,
+      velocidad: t.velocidad,
+      semillas: t.semillas,
+      segundosRestantes: t.segundosRestantes,
+      etiquetas: t.etiquetas,
+      esperandoDisco: t.esperandoDisco,
+      terminado: t.terminado,
+      errorFamilia: t.errorFamilia,
+      errorTexto: t.errorTexto,
+    })),
+  });
+}));
+
+/*
+ * Arrancar un torrent a mano.
+ *
+ * Solo se ofrece el boton GO! en el front cuando el torrent esta parado o en
+ * cola; aqui no se filtra para que un fallo se vea claro ("ya estaba
+ * descargando", "no existe") en vez de un 200 silencioso.
+ *
+ * Cuidado: si el torrent lo metio l-archivos, su planificador puede volver a
+ * pararlo al rato si no cabe en disco. El planificador y este boton son
+ * carreras: si se quiere arrancar para siempre, mejor quitar la etiqueta
+ * 'l-archivos:esperando-disco' y dejar hueco en disco.
+ */
+app.post('/api/transmission/:id/start', ruta(async (req, res) => {
+  const id = Number(req.params.id);
+  /* Number('abc') da NaN, que transmision rechazaria. Mejor parar aqui. */
+  if (!Number.isInteger(id) || id < 0) return res.status(400).json({ error: 'id no es un numero' });
+  await transmision.arrancar([id]);
+  res.json({ ok: true });
+}));
+
+app.post('/api/transmission/:id/stop', ruta(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 0) return res.status(400).json({ error: 'id no es un numero' });
+  await transmision.parar([id]);
+  res.json({ ok: true });
+}));
+
 
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
 

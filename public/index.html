@@ -22,6 +22,9 @@
     <button class="pestana" data-vista="descargas">
       Mis descargas <span class="chapa" id="chapa" hidden>0</span>
     </button>
+    <button class="pestana" data-vista="cola">
+      Cola <span class="chapa" id="chapa-cola" hidden>0</span>
+    </button>
   </nav>
 </header>
 
@@ -60,6 +63,26 @@
     <div class="resumen" id="resumen"></div>
     <p class="pie" id="estado-sistema"></p>
     <div class="lista" id="lista"></div>
+  </section>
+
+  <!-- ── Cola de transmission ────────────────────────────────────────────── -->
+  <!-- Aqui estan TODOS los torrents de transmission, no solo los que metio
+       este servicio. El boton GO! arranca a mano uno concreto, util cuando
+       el planificador de l-archivos lo dejo parado y se quiere tirar ya. -->
+  <section id="vista-cola" hidden>
+    <div class="resumen" id="resumen-cola"></div>
+    <div class="filtros">
+      <div class="grupo">
+        <label><input type="checkbox" class="f-col" value="descargando" checked> Descargando</label>
+        <label><input type="checkbox" class="f-col" value="idle" checked> Idle</label>
+        <label><input type="checkbox" class="f-col" value="parado" checked> Parado</label>
+        <label><input type="checkbox" class="f-col" value="compartiendo" checked> Compartiendo</label>
+        <label><input type="checkbox" class="f-col" value="esperando-disco" checked> Esperando disco</label>
+        <input type="search" id="f-col-q" placeholder="Buscar por nombre…">
+      </div>
+    </div>
+    <p class="pie" id="aviso-cola"></p>
+    <div class="lista" id="lista-cola"></div>
   </section>
 </main>
 
